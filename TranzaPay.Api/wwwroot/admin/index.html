@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TranzaPay Admin</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7f8;
+      --panel: #ffffff;
+      --ink: #1a2428;
+      --muted: #65747a;
+      --line: #d9e0e3;
+      --accent: #0f766e;
+      --danger: #b42318;
+      --warn: #9a5b00;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0; }
+    h2 { margin: 0 0 12px; font-size: 16px; letter-spacing: 0; }
+    main { padding: 20px 24px 32px; display: grid; gap: 16px; }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; overflow: auto; }
+    .login { max-width: 420px; margin: 64px auto; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      font: inherit;
+      color: var(--ink);
+      background: #fff;
+    }
+    button {
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 12px;
+      font: inherit;
+      cursor: pointer;
+      min-height: 38px;
+    }
+    button.secondary { background: #394b52; }
+    button.danger { background: var(--danger); }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .hidden { display: none; }
+    .muted { color: var(--muted); }
+    .error { color: var(--danger); min-height: 20px; }
+    .pill { display: inline-flex; border-radius: 999px; padding: 3px 8px; background: #e7f3f1; color: #0f5f58; font-size: 12px; }
+    .pill.warn { background: #fff4db; color: var(--warn); }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+      header, main { padding-left: 14px; padding-right: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="login" class="login">
+    <section>
+      <h1>TranzaPay Admin</h1>
+      <p class="muted">Default seed login: <code>admin@tranzapay.local</code> / <code>Admin123!</code></p>
+      <label>Email <input id="email" autocomplete="username" value="admin@tranzapay.local"></label>
+      <br>
+      <label>Password <input id="password" type="password" autocomplete="current-password" value="Admin123!"></label>
+      <br>
+      <div class="toolbar">
+        <button id="loginButton">Login</button>
+        <a href="/swagger" class="muted">Swagger</a>
+      </div>
+      <p id="loginError" class="error"></p>
+    </section>
+  </div>
+
+  <div id="app" class="hidden">
+    <header>
+      <div>
+        <h1>TranzaPay Admin</h1>
+        <div class="muted" id="adminName"></div>
+      </div>
+      <div class="toolbar">
+        <button class="secondary" id="refreshButton">Refresh</button>
+        <button class="danger" id="logoutButton">Logout</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="grid">
+        <section>
+          <h2>Wallet Overview</h2>
+          <table>
+            <thead><tr><th>Wallet</th><th>User</th><th>Currency</th><th>Balance</th><th>Status</th></tr></thead>
+            <tbody id="walletRows"></tbody>
+          </table>
+        </section>
+
+        <section>
+          <h2>Pending Withdrawals</h2>
+          <table>
+            <thead><tr><th>Request</th><th>User</th><th>Wallet</th><th>Amount</th><th>Action</th></tr></thead>
+            <tbody id="withdrawalRows"></tbody>
+          </table>
+        </section>
+      </div>
+
+      <section>
+        <h2>Transactions</h2>
+        <table>
+          <thead><tr><th>Reference</th><th>Type</th><th>Amount</th><th>Status</th><th>Created</th><th>Ledger</th></tr></thead>
+          <tbody id="transactionRows"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Audit Logs</h2>
+        <table>
+          <thead><tr><th>Action</th><th>Entity</th><th>User</th><th>IP</th><th>Created</th><th>Values</th></tr></thead>
+          <tbody id="auditRows"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const state = { token: localStorage.getItem("tranzapay-token"), user: null };
+    const $ = (id) => document.getElementById(id);
+    const money = (value, currency = "USD") => new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value);
+    const short = (value) => value ? String(value).slice(0, 8) : "";
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+          ...(options.headers || {})
+        }
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || response.statusText);
+      }
+
+      return response.status === 204 ? null : response.json();
+    }
+
+    function renderShell() {
+      $("login").classList.toggle("hidden", Boolean(state.token));
+      $("app").classList.toggle("hidden", !state.token);
+      $("adminName").textContent = state.user ? `${state.user.fullName} · ${state.user.role}` : "";
+    }
+
+    async function login() {
+      $("loginError").textContent = "";
+      try {
+        const result = await api("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email: $("email").value, password: $("password").value })
+        });
+        state.token = result.accessToken;
+        state.user = result.user;
+        localStorage.setItem("tranzapay-token", state.token);
+        renderShell();
+        await loadAll();
+      } catch (error) {
+        $("loginError").textContent = error.message;
+      }
+    }
+
+    async function loadAll() {
+      const [wallets, withdrawals, transactions, audits] = await Promise.all([
+        api("/api/admin/wallets"),
+        api("/api/admin/withdrawals/pending"),
+        api("/api/admin/transactions"),
+        api("/api/admin/audit-logs")
+      ]);
+
+      $("walletRows").innerHTML = wallets.map(wallet => `
+        <tr>
+          <td><code>${short(wallet.id)}</code></td>
+          <td><code>${short(wallet.userId)}</code></td>
+          <td>${wallet.currency}</td>
+          <td>${money(wallet.balance, wallet.currency)}</td>
+          <td><span class="pill">${wallet.status}</span></td>
+        </tr>`).join("") || `<tr><td colspan="5" class="muted">No wallets</td></tr>`;
+
+      $("withdrawalRows").innerHTML = withdrawals.map(item => `
+        <tr>
+          <td><code>${short(item.id)}</code></td>
+          <td><code>${short(item.userId)}</code></td>
+          <td><code>${short(item.walletId)}</code></td>
+          <td>${money(item.amount)}</td>
+          <td class="toolbar">
+            <button onclick="review('${item.id}', 'approve')">Approve</button>
+            <button class="danger" onclick="review('${item.id}', 'reject')">Reject</button>
+          </td>
+        </tr>`).join("") || `<tr><td colspan="5" class="muted">No pending withdrawals</td></tr>`;
+
+      $("transactionRows").innerHTML = transactions.map(tx => `
+        <tr>
+          <td><code>${tx.reference}</code></td>
+          <td>${tx.type}</td>
+          <td>${money(tx.amount, tx.currency)}</td>
+          <td><span class="pill">${tx.status}</span></td>
+          <td>${new Date(tx.createdAt).toLocaleString()}</td>
+          <td>${tx.ledgerEntries.map(entry => `${entry.entryType} <code>${short(entry.walletId)}</code> ${money(entry.amount, tx.currency)}`).join("<br>")}</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="muted">No transactions</td></tr>`;
+
+      $("auditRows").innerHTML = audits.map(log => `
+        <tr>
+          <td>${log.action}</td>
+          <td>${log.entityName}<br><code>${short(log.entityId)}</code></td>
+          <td><code>${short(log.userId)}</code></td>
+          <td>${log.ipAddress || ""}</td>
+          <td>${new Date(log.createdAt).toLocaleString()}</td>
+          <td><code>${escapeHtml(log.newValues || log.oldValues || "")}</code></td>
+        </tr>`).join("") || `<tr><td colspan="6" class="muted">No audit logs</td></tr>`;
+    }
+
+    async function review(id, decision) {
+      await api(`/api/admin/withdrawals/${id}/review`, {
+        method: "POST",
+        body: JSON.stringify({ decision, remarks: decision })
+      });
+      await loadAll();
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
+    }
+
+    $("loginButton").addEventListener("click", login);
+    $("refreshButton").addEventListener("click", loadAll);
+    $("logoutButton").addEventListener("click", () => {
+      state.token = null;
+      state.user = null;
+      localStorage.removeItem("tranzapay-token");
+      renderShell();
+    });
+
+    renderShell();
+    if (state.token) {
+      loadAll().catch(() => {
+        localStorage.removeItem("tranzapay-token");
+        state.token = null;
+        renderShell();
+      });
+    }
+  </script>
+</body>
+</html>

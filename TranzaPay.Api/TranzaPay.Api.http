@@ -1,0 +1,19 @@
+@HostAddress = http://localhost:5255
+@Token = paste-jwt-token-here
+
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@tranzapay.local",
+  "password": "Admin123!"
+}
+
+###
+
+GET {{HostAddress}}/health
+
+###
+
+GET {{HostAddress}}/api/admin/audit-logs
+Authorization: Bearer {{Token}}
