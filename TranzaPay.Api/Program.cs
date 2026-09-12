@@ -1,10 +1,13 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using TranzaPay.Api.Middleware;
+using TranzaPay.Api.Monitoring;
 using TranzaPay.Api.Services;
 using TranzaPay.Application;
 using TranzaPay.Application.Interfaces;
@@ -24,6 +27,30 @@ builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.AddHostedService<PendingWithdrawalMonitorService>();
+builder.Services.AddTranzaPayHealthChecks();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("api", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 60;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        limiterOptions.QueueLimit = 10;
+    });
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            error = "Too many requests. Please retry later.",
+            retryAfterSeconds = 60
+        }, cancellationToken: cancellationToken);
+    };
+});
 
 builder.Services.AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -83,7 +110,9 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseRateLimiter();
 
 using (var scope = app.Services.CreateScope())
 {
@@ -102,10 +131,14 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapGet("/", () => Results.Redirect("/admin/index.html"));
+app.MapHealthChecks("/healthz");
 app.MapGet("/health", async (TranzaPayDbContext db, CancellationToken cancellationToken) =>
 {
     var canConnect = await db.Database.CanConnectAsync(cancellationToken);
     return canConnect ? Results.Ok(new { status = "healthy" }) : Results.Problem("Database is unavailable.");
 });
+app.MapGet("/ready", () => Results.Ok(new { status = "ready" }));
+
+app.MapControllers().RequireRateLimiting("api");
 
 app.Run();
