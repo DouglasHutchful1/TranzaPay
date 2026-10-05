@@ -14,6 +14,9 @@ public static class DbSeeder
 
     public static async Task InitializeAsync(TranzaPayDbContext db, ILogger logger, CancellationToken cancellationToken = default)
     {
+        var connectionString = db.Database.GetConnectionString();
+        logger.LogWarning("DB connection string before EnsureCreatedAsync: {ConnectionString}", connectionString);
+
         await db.Database.EnsureCreatedAsync(cancellationToken);
 
         if (!await db.Users.AnyAsync(x => x.Id == SystemUserId, cancellationToken))
