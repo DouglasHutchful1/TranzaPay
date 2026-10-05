@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: tranzapay-api
+    runtime: docker
+    plan: free
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: tranzapay-db
+          property: connectionString
+      - key: Jwt__Secret
+        generateValue: true
+
+databases:
+  - name: tranzapay-db
+    plan: free
